@@ -351,3 +351,141 @@ INSERT INTO `user` (`id`, `name`, `pwd`) VALUES
 4.  返回类型不对
 5.  Maven导出资源问题
 
+
+
+# 3. CRUD
+
+## 3.1 namespace
+
+namespace中的包名要和Dao/Mapper接口的包名一致！
+
+```xml
+<mapper namespace="com.kuang.dao.UserDao">
+   ....
+</mapper>
+```
+
+## 3.2 select
+
+选择，查询语句
+
+```xml
+<select id="getUserList" resultType="com.kuang.pojo.User">
+	select * from `user`
+</select>
+```
+
+-   id: 就是对应的namespace中的方法名；
+-   resultType： sql语句执行的返回值！
+-   parameterType：参数类型
+
+
+
+1.  编写接口
+
+    ```java
+    //插入一个用户
+    int addUser(User user);
+    ```
+
+2.  编写对应的mapper中的sql语句
+
+    ```xml
+    <select id="getUserById" resultType="com.kuang.pojo.User" parameterType="int">
+        select * from `user` where id = #{id}
+    </select>
+    ```
+
+3.  测试
+
+    ```java
+    @Test
+    public void getUserById(){
+        SqlSession sqlSession = MybatisUtils.getSqlSession();
+    
+        UserDao mapper = sqlSession.getMapper(UserDao.class);
+        User userById = mapper.getUserById(1);
+        System.out.println(userById);
+    }
+    ```
+
+## 3.3 Insert
+
+```xml
+<insert id="addUser" parameterType="com.kuang.pojo.User">
+    insert into `user` (`id`, `name`, `pwd`) value (#{id}, #{name}, #{pwd})
+</insert>
+```
+
+## 3.4 Update
+
+```xml
+<update id="updateUser" parameterType="com.kuang.pojo.User">
+    update mybatis.user set name = #{name}, pwd = #{pwd} where id = #{id}
+</update>
+```
+
+## 3.5 Delete
+
+```xml
+<delete id="deleteUser" parameterType="int">
+    delete from `user` where id=#{id}
+</delete>
+```
+
+
+
+## 3.6 分析错误
+
+-   写sql语句的xml文件中 不同的sql操作标签不要搞错（select标签中写insert！）
+-   resources绑定 mapper，需要使用路径！ /分割，不是包名！
+-   程序配置文件必须符合规范
+-   NullPointerException错误，变量作用域问题。作用域要符合实际情况
+-   输出的xml文件存在乱码问题，导致无法运行
+-   Maven资源没有导出
+
+
+
+## 3.7 万能Mapper
+
+假设，实体类或者数据库的表、字段或者参数数量过多，我们可以考虑使用Map
+
+```java
+// 万能Map
+int addUser1(Map<String, Object> map);
+```
+
+```xml
+<insert id="addUser" parameterType="map">
+    insert into `user` (`id`, `name`, `pwd`) value (#{userid}, #{userName}, #{passWord})
+</insert>
+```
+
+
+
+Map传递参数，直接在sql中取出key即可
+
+对象传递参数，直接在sql中取对象的属性即可！
+
+只有一个基本类型参数的情况下，可以直接在sql中取到
+
+多个参数用Map，或者**使用注解**！
+
+
+
+## 思考
+
+模糊查询？
+
+1.  Java代码执行的时候传递通配符%%
+
+    ```java
+    List<User> userLike = mapper.getUserLike("%四%");
+    ```
+
+2.  在sql拼接中使用通配符！
+
+    ```sql
+    select * from `user` where name like "%"#{value}"%"
+    ```
+
