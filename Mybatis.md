@@ -1,4 +1,4 @@
-# Mybatis
+Mybatis
 
 环境：
 
@@ -1379,3 +1379,494 @@ public class Student {
 -   索引优化
 -   游标
 -   存储过程
+
+
+
+
+
+# 12. 动态SQL
+
+什么是动态SQL：动态SQL就是指根据不同的条件生成不同的SQL语句。
+
+```xml
+if
+choose (when, otherwise)
+trim (where, set)
+foreach
+```
+
+
+
+## 搭建环境
+
+```sql
+CREATE TABLE `blog`(
+`id` VARCHAR(50) NOT NULL COMMENT '博客id',
+`title` VARCHAR(100) NOT NULL COMMENT '博客标题',
+`author` VARCHAR(30) NOT NULL COMMENT '博客作者',
+`create_time` DATETIME NOT NULL COMMENT '创建时间',
+`views` INT(30) NOT NULL COMMENT '浏览量'
+)ENGINE=INNODB DEFAULT CHARSET=utf8
+```
+
+
+
+创建一个基础工程
+
+1.  导包
+
+2.  编写配置文件
+
+3.  编写实体类
+
+    ```java
+    @Data
+    public class Blog {
+        private int id;
+        private String title;
+        private String author;
+        private Date createTime;
+        private int views;
+    }
+    ```
+
+4.  编写实体类对应的Mapper接口和Mapper.xml文件
+
+
+
+
+
+## if
+
+```xml
+<select id="queryBlogIf" parameterType="map" resultType="blog">
+    select * from blog where 1=1
+    <if test="title!=null">
+        and title = #{title}
+    </if>
+    <if test="author != null">
+        and author = #{author}
+    </if>
+</select>
+```
+
+
+
+## choose (when, otherwise)
+
+```xml
+<select id="queryBlogChoose" parameterType="map" resultType="blog">
+    select * from blog
+    <where>
+        <choose>
+            <when test="title != null">
+                title = #{title}
+            </when>
+            <when test="author != null">
+                author = #{author}
+            </when>
+            <otherwise>
+                and views = #{views}
+            </otherwise>
+        </choose>
+    </where>
+</select>
+```
+
+
+
+## trim（where，set）
+```xml
+<select id="queryBlogIf" parameterType="map" resultType="blog">
+    select * from blog
+    <where>
+        <if test="title!=null">
+        	and title = #{title}
+    	</if>
+    	<if test="author != null">
+        	and author = #{author}
+	    </if>
+    </where>
+</select>
+```
+
+
+
+```xml
+<update id="updateBlog" parameterType="map">
+    update blog
+    <set>
+        <if test="title != null">
+            title = #{title},
+        </if>
+        <if test="author != null">
+            author = #{author}
+        </if>
+    </set>
+    where id = #{id}
+</update>
+```
+
+
+
+==**所谓动态SQL，本质都是SQL，只是我们可以在SQL层面，去执行逻辑代码**==
+
+
+
+
+
+## SQL片段
+
+有的时候，我们可能会将一些功能部分抽取出来，重复使用
+
+1.  使用SQL标签抽取公共的部分，提供id
+
+    ```xml
+    <sql id="wuhu">
+        <if test="title!=null">
+            title = #{title},
+        </if>
+        <if test="author != null">
+            author = #{author},
+        </if>
+    </sql>
+    ```
+
+2.  在需要使用的地方，使用include + id即可完成引用
+
+    ```xml
+    <update id="updateBlog" parameterType="map">
+        update blog
+        <set>
+            <include refid="wuhu"></include>
+        </set>
+        where id = #{id}
+    </update>
+    ```
+
+3.   注意事项
+
+    -   最好基于单表来定义SQL片段
+    -   不要存在where标签
+
+
+
+
+
+## foreach
+
+```xml
+<select id="queryBlogForeach" parameterType="map" resultType="blog">
+    select * from blog
+    <where>
+        id in
+        <foreach collection="list" index="index" item="item" open="(" close=")" separator=", ">
+            #{item}
+        </foreach>
+    </where>
+</select>
+```
+
+
+
+==动态SQL就是在拼接SQL语句，我们只要保证SQL的正确性，按照SQL的格式，去排列组合就可以了==
+
+建议：
+
+- 现在Mysql中写出完整的SQL,再对应的去修改成为我们的动态SQL实现通用即可！
+
+
+
+
+
+# 13. 缓存
+
+## 13.1 简介
+
+查询 需要连接数据库，如果多次需要一个数据，就会多次读取数据库，非常消耗资源
+
+我们可以将一次查询的结果，给他暂存在一个可以直接取到的地方 ----》 内存：缓存
+
+
+
+我们再次使用相同的数据的时候，就可以直接走缓存，而不需要走数据库了
+
+
+
+1.  什么是缓存【Cache】？
+    -   存在内存中的临时数据。
+    -   将用户经常查询的数据放在缓存（内存）种，用户去查询数据就不用从磁盘上（关系型数据库数据文件）查询，可以直接用缓存中查询，提高查询效率，解决高并发系统的性能问题
+2.  为什么使用缓存？
+    -   因为能减少和数据库交互的次数，减少系统开销，提高系统性能
+3.  什么样的数据适合使用缓存？
+    -   经常查询且不经常发生改变的数据
+
+
+
+## 13.2 Mybatis缓存
+
+-   MyBatis包含一个非常强大的查询缓存特性，它可以非常方便地定制和配置缓存。缓存可以极大地提升查询效率。
+-   MyBatis系统中默认了两级缓存：一级缓存和二级缓存
+    -   默认情况下，只有一级缓存开启。（SqlSession级别的缓存，也成为本地缓存） --> 作用域较低
+    -   二级缓存需要手动开启和配置，它是基于namespace级别的缓存。 --> 作用域较高
+    -   为了提高扩展性，MyBatis定义了缓存接口Cache。我们可以通过实现Cache接口来自定义二级缓存
+
+
+
+
+
+## 13.3 一级缓存
+
+-   一级缓存也叫本地缓存：SqlSession
+    -   与数据库同一次会话期间查询到的数据会放在本地缓存中。
+    -   以后如果需要获取相同的数据，直接从缓存中拿，不用再去拆线呢数据库；
+
+
+
+测试步骤：
+
+1.  开启日志！
+
+2.  测试在一个Session中查询两次相同记录
+
+    ```java
+    @Test
+    public void test(){
+        SqlSession sqlSession = MybatisUtils.getSqlSession();
+        UserMapper mapper = sqlSession.getMapper(UserMapper.class);
+        List<User> users = mapper.queryUsersById(1);
+        System.out.println(users);
+    
+        System.out.println("=====================================");
+    
+        List<User> user1 = mapper.queryUsersById(1);
+        System.out.println(user1);
+    
+        System.out.println(user1 == users);
+    
+        sqlSession.close();
+    }
+    ```
+
+3.  查看日志输出
+
+![image-20200827103651127](Mybatis.assets/image-20200827103651127.png)
+
+
+
+缓存失效的情况：
+
+1.  查询不同的东西（压根就没有缓存）
+
+2.  映射语句文件中的所有 insert、update 和 delete 语句会刷新缓存（增删改操作可能会修改原有数据）
+	```java
+@Test
+public void test(){
+    SqlSession sqlSession = MybatisUtils.getSqlSession();
+    UserMapper mapper = sqlSession.getMapper(UserMapper.class);
+    List<User> users = mapper.queryUsersById(1);
+    System.out.println(users);
+    System.out.println("=====================================");
+
+    int woc = mapper.updateUser(new User(2, "我日", "nimade"));
+    if (woc > 0) System.out.println("success");
+    else System.out.println("failed");
+
+    System.out.println("=====================================");
+
+    List<User> user1 = mapper.queryUsersById(1);
+    System.out.println(user1);
+
+    System.out.println(user1 == users);
+
+    sqlSession.close();
+}
+	```
+	
+	![image-20200827104557319](Mybatis.assets/image-20200827104557319.png)
+	
+3.  查询不同的Mapper.xml （二级缓存都不存在，更不用说一级缓存了）
+
+4.  手动清除Cache
+
+    ```java
+    @Test
+    public void test(){
+        SqlSession sqlSession = MybatisUtils.getSqlSession();
+        UserMapper mapper = sqlSession.getMapper(UserMapper.class);
+        List<User> users = mapper.queryUsersById(1);
+        System.out.println(users);
+        System.out.println("=====================================");
+    
+        sqlSession.clearCache(); // 手动清除缓存
+    
+        System.out.println("=====================================");
+    
+        List<User> user1 = mapper.queryUsersById(1);
+        System.out.println(user1);
+    
+        System.out.println(user1 == users);
+    
+        sqlSession.close();
+    }
+    ```
+
+    ![image-20200827104855161](Mybatis.assets/image-20200827104855161.png)
+
+
+
+小结： 一级换粗你默认开启，只是在一次SqlSession中有效，也就是从连接到关闭的这个时间段
+
+一级缓存就是一个Map。
+
+
+
+
+
+## 13.4 二级缓存
+
+-   二级缓存也叫全局缓存，一级缓存作用域太低，所以诞生了二级缓存
+-   基于namespace级别的缓存，一个名称空间，对应一个二级缓存
+-   工作机制
+    -   一个会话查询一条数据，这个数据就会被放在当前会话的一级缓存中；
+    -   如果当前会话关闭了，这个会话对应的一级缓存就没了；但我们想要的是，会话关闭了，一级缓存中的数据被保存在二级缓存中；
+    -   新的会话查询信息，就可以从二级缓存中获内容；
+    -   不同的mapper查处的数据会放在自己对应的缓存中（mapper）；
+
+
+
+步骤：
+
+1.  开启全局缓存
+
+    ```xml
+    <!--显式开启全局缓存-->
+    <setting name="cacheEnabled" value="true"/>
+    ```
+
+2.  在要使用二级缓存的Mapper.xml中开启
+
+    ```xml
+    <!--    在当前的Mapper.xml中使用二级缓存-->
+    <cache/>
+    ```
+
+    也可以自定义配置一些参数
+
+    ```XML
+    <!--    在当前的Mapper.xml中使用二级缓存-->
+    <cache
+    	eviction="FIFO"
+       	flushInterval="60000"
+        size="512"
+        readOnly="true"/>
+    ```
+
+3.  测试
+
+    ```java
+    @Test
+    public void test(){
+        SqlSession sqlSession = MybatisUtils.getSqlSession();
+        UserMapper mapper = sqlSession.getMapper(UserMapper.class);
+        SqlSession sqlSession2 = MybatisUtils.getSqlSession();
+        UserMapper mapper1 = sqlSession2.getMapper(UserMapper.class);
+    
+        List<User> users = mapper.queryUsersById(1);
+        System.out.println(users);
+        
+        sqlSession.close();
+        System.out.println("========================================");
+    
+        List<User> users1 = mapper1.queryUsersById(1);
+        System.out.println(users1);
+        System.out.println(users == users1);
+    
+        sqlSession2.close();
+    }
+    ```
+
+    ![image-20200827112737586](Mybatis.assets/image-20200827112737586.png)
+
+    1.  问题：我们需要将实体类序列化
+
+        可能会存在没有序列化的错误
+
+
+
+小结：
+
+-   只要开启了二级缓存，只要在一个Mapper下就有效
+-   所有的数据都会先放在一级缓存中；
+-   只有当会话提交，或者关闭的时候，才会提交到二级缓存中！
+
+
+
+## 13.5 缓存
+
+![image-20200827144733839](Mybatis.assets/image-20200827144733839.png)
+
+
+
+
+
+## 13.6 自定义缓存 - ehcache
+
+`Echcache是一种广泛使用的开源Java分布式缓存。 主要面向通用缓存`
+
+
+
+
+
+在程序中使用ehcache，先导包
+```xml
+<!-- https://mvnrepository.com/artifact/org.mybatis.caches/mybatis-ehcache -->
+<dependency>
+    <groupId>org.mybatis.caches</groupId>
+    <artifactId>mybatis-ehcache</artifactId>
+    <version>1.1.0</version>
+</dependency>
+```
+
+在Mapper种指定我们使用的ehcache缓存实现
+
+```xml
+<cache type="org.mybatis.caches.ehcache.EhcacheCache"/>
+```
+
+
+
+然后加一个ehcache.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<ehcache xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="http://ehcache.org/ehcache.xsd"
+         updateCheck="false">
+
+    <diskStore path="./tmpdir/Tmp_EhCache"/>
+
+    <defaultCache
+            eternal="false"
+            maxElementsInMemory="10000"
+            overflowToDisk="false"
+            diskPersistent="false"
+            timeToIdleSeconds="1800"
+            timeToLiveSeconds="259200"
+            memoryStoreEvictionPolicy="LRU"/>
+
+    <cache
+            name="cloud_user"
+            eternal="false"
+            maxElementsInMemory="5000"
+            overflowToDisk="false"
+            diskPersistent="false"
+            timeToIdleSeconds="1800"
+            timeToLiveSeconds="1800"
+            memoryStoreEvictionPolicy="LRU"/>
+</ehcache>
+```
+
+
+
+Redis来做缓存！ K-V
